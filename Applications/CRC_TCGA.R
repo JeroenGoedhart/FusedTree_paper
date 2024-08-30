@@ -64,18 +64,14 @@ Clinical$site <- as.numeric(Clinical$site) - 1# 0 = right; 1 = left-rectum
 Clinical$Stage = factor(Clinical$Stage, levels(Clinical$Stage))
 
 Omics1 <- Omics
-p_sel = ncol(Omics1) #only use p_sel omics covariates with largest variance
+#p_sel <- 500
+#p_sel <- 5000
+p_sel <- ncol(Omics1) #only use p_sel omics covariates with largest variance
 sds = apply(Omics1,2,function(x) sd(x,na.rm = T))
 ord = order(sds,decreasing = T)[1:p_sel]
 Omics <- Omics1[,ord]
+remove(sds,ord)
 
-#remove(ord,sds)
-
-
-
-
-#which(duplicated(colnames(Omics)))
-#p_sel <- ncol(Omics)
 nm <- paste(p_sel,"CRC.Rdata", sep = "_")
 dim(Omics)
 save(Clinical,Omics,Response, file = nm)
@@ -113,7 +109,6 @@ gc()
 library(survival)
 library(survC1)
 library(survminer)
-#library(Matrix)
 library(rpart); 
 library(rpart.plot)
 library(treeClust)
@@ -127,15 +122,12 @@ library(gbm)
 library(SurvMetrics)
 library(survivalROC)
 library(stringr)
-#set.seed(48)
-#set.seed(163)
-#set.seed(4889)
-dim(Clinical)
-dim(Omics)
-#apply(Omics,2,sd)
-#apply(Omics,2,mean)
-#Omics <- scale(Omics)
+
+# standardize data
+Omics <- scale(Omics)
 #set.seed(4)
+
+# split data in training and test set
 set.seed(48)
 #set.seed(163)
 #set.seed(4889)
@@ -146,6 +138,8 @@ X<-Omics[-ids,]; Xtest<-Omics[ids,]
 Y<-Response[-ids,]; Ytest<-Response[ids,]
 Z<-Clinical[-ids,]; Ztest=Clinical[ids,]
 remove(ids,Response,Clinical,Omics)
+
+# Fit training and test survival curve
 d.demo = data.frame(1)
 fit <- survfit(Y ~ 1, data = d.demo)
 fit1 <- survfit(Ytest ~ 1, data = d.demo)
@@ -168,6 +162,11 @@ ggsurvplot(fitTot, data = d.demo, combine = TRUE, # Combine curves
            font.x = c(10, face = "bold"),
            font.y = c(10, face = "bold"))
 dev.off()
+
+
+
+##### Model Fitting #####
+#########################
 
 source('Sidefunctions_Update.R')
 source('RidgeFunctions_Update.R')
@@ -340,7 +339,7 @@ Treefit <- prune(rp, cp = bestcp)
 
 name <- paste("Tree_CRC.pdf",sep = "_")
 pdf(name, width=3.25,height=3)
-p1 <- rpart.plot(Treefit, # middle graph
+rpart.plot(Treefit, # middle graph
            type=5,
            extra=1, 
            box.palette="Pu",
@@ -348,6 +347,7 @@ p1 <- rpart.plot(Treefit, # middle graph
            shadow.col="gray", 
            nn=TRUE,
            cex = 0.6)
+
 
 dev.off()
 
