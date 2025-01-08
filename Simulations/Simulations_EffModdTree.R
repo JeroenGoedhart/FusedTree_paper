@@ -18,10 +18,11 @@ library(caret)
 library(xgboost)
 library(mvtnorm)
 library(Matrix)
-
+library(glinternet)
+citation("glinternet")
 ##### simulations #####
 
-Nsim = 100
+Nsim = 500
 p = 500
 p_Clin = 5
 N = 300
@@ -40,6 +41,8 @@ Xtest = mvtnorm::rmvnorm(Ntest, sigma = CorrX)
 colnames(Xtest) = paste0("x",seq(1,p))
 set.seed(344)
 Ztest = matrix(runif(Ntest*p_Clin,0,1),nrow = Ntest, ncol = p_Clin)
+Ztest[,1] <- sample(0:3,Ntest,replace = T)
+Ztest[,2] <- sample(0:1,Ntest,replace = T)
 colnames(Ztest) = paste0("z",seq(1,p_Clin))
 Ztest = data.frame(Ztest)
 set.seed(4)
@@ -47,31 +50,33 @@ betas <- matrix(rlaplace(p,0,10/p),ncol = 1)
 #Var(Xtest[,1:25]%*%betas[1:25])
 
 g <- function (z,x,betas){
-  1*(z[,1] < 0.5)*(z[,2] < 0.5)*(-10 + x[,1:p/4] %*% betas[1:p/4]*5) + 
-    1*(z[,1] < 0.5)*(z[,2] >= 0.5)*(-5 + x[,1:p/4]%*% betas[1:p/4]*3) +
-    1*(z[,1] >= 0.5)*(z[,4] < 0.5)*(5 + x[,1:p/4]%*% betas[1:p/4]*0.5) +
-    1*(z[,1] >= 0.5)*(z[,4] >= 0.5)*(10 + x[,1:p/4]%*% betas[1:p/4]*0.1) +
-    x[,(p/4+1):p]%*% betas[(p/4+1):p] + 3*z[,3]
+  1*(z[,1] < 1.5)*(z[,2] < 0.5)*(-10 + x[,1:p/4] %*% betas[1:p/4]*8) + #node1
+    1*(z[,1] < 1.5)*(z[,2] >= 0.5)*(-2 + x[,1:p/4]%*% betas[1:p/4]*2) + #node2
+    1*(z[,1] >= 1.5)*(z[,3] < 0.5)*(5 + x[,1:p/4]%*% betas[1:p/4]*0.5) +
+    1*(z[,1] >= 1.5)*(z[,3] >= 0.5)*(10 + x[,1:p/4]%*% betas[1:p/4]*0.125) +
+    x[,(p/4+1):p]%*% betas[(p/4+1):p] + 5*z[,4]
 }
+set.seed(4)
+Ytest = g(z = Ztest, x = Xtest, betas=betas)[,1] + rnorm(Ntest,0,1)
+var(Ytest)
 
 treef <- function(z){
-  nodes <- ifelse((z[,1] < 0.5 & z[,2] < 0.5),1,0) +
-    ifelse((z[,1] < 0.5 & z[,2] >= 0.5),2,0) +
-    ifelse((z[,1] >= 0.5 & z[,4] < 0.5),3,0) +
-    ifelse((z[,1] >= 0.5 & z[,4] >= 0.5),4,0)
+  nodes <- ifelse((z[,1] < 1.5 & z[,2] < 0.5),1,0) +
+    ifelse((z[,1] < 1.5 & z[,2] >= 0.5),2,0) +
+    ifelse((z[,1] >= 1.5 & z[,3] < 0.5),3,0) +
+    ifelse((z[,1] >= 1.5 & z[,3] >= 0.5),4,0)
   return(nodes)
 }
 
 NodesTe_oracle <- treef(Ztest)
 NodesTe_oracle = factor(NodesTe_oracle, levels = sort(unique(NodesTe_oracle)))
+summary(NodesTe_oracle)
 Ute_or <- model.matrix(~0+NodesTe_oracle)
-Ute_or <- cbind(Ute_or,Ztest)
+Ute_or <- cbind(Ute_or,Ztest[,-c(1:3)])
 Ute_or <- as.matrix(Ute_or)
 remove(NodesTe_oracle)
 
-set.seed(4)
-Ytest = g(z = Ztest, x = Xtest, betas=betas)[,1] + rnorm(Ntest,0,1)
-var(Ytest)
+
 
 
 MSE_ridge <- c()
@@ -83,26 +88,27 @@ MSE_Lasso <- c()
 MSE_ZeroFus <- c()
 MSE_oracle <- c()
 MSE_glinternet <- c()
+AllNodes <- c()
 FusPar <- matrix(NA,nrow=Nsim,ncol=7)
 colnames(FusPar) <- c("Lambda","alpha","Lam Full Fus", "Lam Ridge","Lam Zero Fus","Lambda_Or","alpha_Or")
 VarsBeta <- matrix(NA,nrow=Nsim,ncol=2)
-library(glinternet)
+
 for (i in 1:Nsim) {
+  
   print(paste("simulation",i, sep = " "))
   ## simulating clinical covariates
   
   set.seed(i^3+5343)
  
   Z = matrix(runif(N*p_Clin,0,1),nrow = N, ncol = p_Clin) 
-  #Z = matrix(sample(c(0,1),N*p_Clin,replace = T),nrow = N, ncol = p_Clin)
+  Z[,1] <- sample(0:3,N,replace = T)
+  Z[,2] <- sample(0:1,N,replace = T)
   colnames(Z) = paste0("z",seq(1,p_Clin))
   Z <- data.frame(Z)
   #X = matrix(rnorm(N*p,0,1),nrow = N, ncol = p)
   X = mvtnorm::rmvnorm(N, sigma = CorrX)
   colnames(X) = paste0("x",seq(1,p))
-  
   ## simulating response
-  #set.seed(i*3+4*i^2+3)
   Y = g(z=Z,x=X,betas = betas)+rnorm(N,0,1)
   Y <- Y[,1]
   
@@ -178,12 +184,12 @@ for (i in 1:Nsim) {
   MSE_Lasso[i] = mean((preds_Lasso-Ytest)^2);
   remove(LassoFit,preds_Lasso)
   
-  numLevs <- c(rep(1,ncol(Z)),rep(1,ncol(X)))
+  numLevs <- c(4,2,1,1,1,rep(1,ncol(X)))
   Lam <- glinternet.cv(X = cbind(as.matrix(Z),X), Y=Y, numLevels = numLevs, nFolds = 5,
-                       interactionCandidates=c(seq(1,5,1)), family = "gaussian")
+                       interactionCandidates=c(1:5), family = "gaussian")
   
   fit <- glinternet(X = cbind(as.matrix(Z),X), Y=Y, numLevels = numLevs, lambda = Lam$lambdaHat,
-                    interactionCandidates=c(seq(1,5,1)), family = "gaussian")
+                    interactionCandidates=c(1:5), family = "gaussian")
   Ypred <- predict(fit, X = cbind(as.matrix(Ztest),Xtest), lambda = Lam$lambdaHat)
   MSE_glinternet[i] <- mean((Ypred-Ytest)^2)
   remove(Lam,fit,Ypred)
@@ -191,9 +197,10 @@ for (i in 1:Nsim) {
   #### oracle Tree Model ####
   Nodes_oracle = treef(Z)
   Nodes_oracle = factor(Nodes_oracle, levels = sort(unique(Nodes_oracle)))
+  summary(Nodes_oracle)
   U_or <- model.matrix(~0+Nodes_oracle)
   X_or <- t(Matrix::KhatriRao(t(X),t(U_or)))
-  U_or <- cbind(U_or,Z)
+  U_or <- cbind(U_or,Z[,-c(1,2,3)])
   U_or <- as.matrix(U_or)
   Delta_or = .PenMatr(NumNodes = length(unique(Nodes_oracle)), p = p)
   
@@ -203,7 +210,7 @@ for (i in 1:Nsim) {
                                             model="linear",
                                             folds=folds,
                                             loss="sos", maxIter=100)
-  dim(X_or)
+  
   
   Fit_or <- ridgeGLM2(Y = Y, U = U_or, X = as.matrix(X_or), 
                       lambda = optPenalties_or[1], lambdaG = optPenalties_or[2], Dg = as.matrix(Delta_or), 
@@ -222,19 +229,27 @@ for (i in 1:Nsim) {
   
   ####### 1. Fit Reg Tree ######
   dat=cbind.data.frame(Y,Z)
-  
   # fitting tree
-  rp <- rpart(Y~.,data = dat, control = rpart.control(xval =5, minbucket = 20),
-              model = T)
+  rp <- rpart(Y~.,data = dat, control = rpart.control(xval =5,  maxdepth = 2),
+              model = T, cost = c(1,10,10,10,10))
   cp = rp$cptable[,1][which.min(rp$cptable[,4])]
   Treefit <- prune(rp, cp = cp)
-  
+  rpart.plot(Treefit, # middle graph
+             type=5,
+             extra=1, 
+             box.palette="Pu",
+             branch.lty=8, 
+             shadow.col="gray", 
+             nn=TRUE,
+             cex = 0.6)
   remove(dat,rp)
   
   ####### 4. Fit fully FusedReg Tree ######
   Nodes <-  row.names(Treefit$frame)[rpart.predict.leaves(Treefit,Z)]
   Nodes <- as.numeric(Nodes)
   NumNod <- length(unique(Nodes))
+  print(NumNod)
+  AllNodes[i] <- NumNod
   if (NumNod < 2){
     MSE_FullFus[i] <- MSE_ridge[i]
     MSE_ZeroFus[i] <- MSE_ridge[i]
@@ -245,7 +260,7 @@ for (i in 1:Nsim) {
     
     Intercepts = model.matrix(~0+factor(Nodes))
     colnames(Intercepts)[1:length(unique(Nodes))] = names
-    Intercepts <- as.matrix(cbind(Intercepts,Z))
+    Intercepts <- as.matrix(cbind(Intercepts,Z[,-1]))
     Lam <- porridge::optPenaltyGLM.kCVauto(Y = Y, X = X, U = Intercepts, 
                                            lambdaInit = 10, lambdaGinit = 0, Dg = matrix(0, ncol=ncol(X), nrow = ncol(X)),
                                            model ="linear", folds = folds, loss = "sos", 
@@ -260,7 +275,7 @@ for (i in 1:Nsim) {
     Nodes_test <-  row.names(Treefit$frame)[rpart.predict.leaves(Treefit,Ztest)]
     Nodes_test <- as.numeric(Nodes_test)
     Intercepts_Test = model.matrix(~0+factor(Nodes_test))
-    Intercepts_Test <- as.matrix(cbind(Intercepts_Test,Ztest))
+    Intercepts_Test <- as.matrix(cbind(Intercepts_Test,Ztest[,-1]))
     colnames(Intercepts_Test)[1:length(unique(Nodes))] = names
     
     
@@ -286,12 +301,12 @@ for (i in 1:Nsim) {
     Dat_test = Dat_Tree(tree = Treefit, X = Xtest, Z = Ztest, Y = Ytest,model = "linear",LinVars = T)
     X1_te <- Dat_test$Omics; U1_te <- Dat_test$Clinical; Y1_te = Dat_test$Response
     remove(Dat_test)
-    
+    dim(cbind(U1_te,X1_te))
     Ypred_Zero = cbind(U1_te,X1_te) %*% Fit_Zero
     MSE_ZeroFus[i] = mean((Ypred_Zero[,1]-Ytest)^2); MSE_FullFus/var(Ytest)
     remove(U1,Y1,X1,X1_te,U1_te,Y1_te,Fit_Zero,Ypred_Zero)
     optPenalties <- PenOpt(Tree = Treefit, X = X, Y = Y, Z = Z, LinVars = T,
-                           lambdaInit = 10, alphaInit = 10,
+                           lambdaInit = 100, alphaInit = 10,
                            model = "linear", folds = folds, loss = "sos")
     
     Fit = FusTreeFit(Tree = Treefit, X = X, Y = Y, Z = Z, LinVars = T,
@@ -318,12 +333,20 @@ for (i in 1:Nsim) {
   remove(X,Y,Z,Treefit,folds)
   gc()
 }
+
+mean(MSE_FullFus); mean(MSE_FusReg); mean(MSE_glinternet); mean(MSE_ZeroFus); mean(MSE_GB); mean(MSE_oracle)
+AllNodes
+results = cbind.data.frame(MSE_FullFus,MSE_FusReg,MSE_GB,MSE_RF,MSE_ridge,MSE_Lasso,MSE_oracle,MSE_ZeroFus, MSE_glinternet)
+colMeans(round(results,3))
+save(AllNodes,file = "Nodes_300.Rdata")
+
 results = cbind.data.frame(MSE_FullFus,MSE_FusReg,MSE_GB,MSE_RF,MSE_ridge,MSE_Lasso,MSE_oracle,MSE_ZeroFus, MSE_glinternet,FusPar,VarsBeta)
 res = colMeans(round(results,3))
+colMeans(results)[1:10]
 round(res,3)
-nm = paste(N,Nsim,"EffModd.Rdata",sep = "_")
+nm = paste(N,Nsim,"EffModd_New.Rdata",sep = "_")
 save(results,file = nm)
-
+load()
 
 var(Ytest)
 mean(MSE_FusReg)
@@ -464,34 +487,6 @@ bp <- ggplot(results, aes(x=values, fill=ind)) +
   theme(legend.title = element_blank()) + labs(x="log (\u03bb)",y="Frequency") 
 bp+facet_grid(.~Setting)
 
-library(glinternet)
-MSE_glinternet <- c()
 
-for (i in 1:Nsim) {
-  print(paste("simulation",i, sep = " "))
-  ## simulating clinical covariates
-  i=1
-  set.seed(i^3+5343)
-  
-  Z = matrix(runif(N*p_Clin,0,1),nrow = N, ncol = p_Clin) 
-  #Z = matrix(sample(c(0,1),N*p_Clin,replace = T),nrow = N, ncol = p_Clin)
-  colnames(Z) = paste0("z",seq(1,p_Clin))
-  #Z <- data.frame(Z)
-  #X = matrix(rnorm(N*p,0,1),nrow = N, ncol = p)
-  X = mvtnorm::rmvnorm(N, sigma = CorrX)
-  colnames(X) = paste0("x",seq(1,p))
-  
-  ## simulating response
-  #set.seed(i*3+4*i^2+3)
-  Y = g(z=Z,x=X,betas = betas)+rnorm(N,0,1)
-  Y <- Y[,1]
-  numLevs <- c(rep(1,ncol(Z)),rep(1,ncol(X)))
-  Lam <- glinternet.cv(X = cbind(Z,X), Y=Y, numLevels = numLevs, nFolds = 5,
-                       interactionCandidates=c(seq(1,ncol(Z),1)), family = "gaussian")
-  Lam <- Lam$lambdaHat
-  fit <- glinternet(X = cbind(Z,X), Y=Y, numLevels = numLevs, lambda = Lam,
-                    interactionCandidates=c(seq(1,ncol(Z),1)), family = "gaussian")
-  Ypred <- predict(fit, X = cbind(Ztest,Xtest), lambda = Lam$lambdaHat)
-  MSE_glinternet[i] <- mean((Ypred-Ytest)^2)
-}
+round(colMeans(results)[1:7],3)  
   

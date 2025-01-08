@@ -1,6 +1,5 @@
+setwd("C:/Users/VNOB-0732/Desktop/R files/ClinOmics/FusedTree_Paper/Applications")
 
-setwd("C:/Users/VNOB-0732/Desktop/R files/ClinOmics/Applications")
-gc()
 #BiocManager::install("mcsurvdata")
 library(mcsurvdata)
 library(ExperimentHub)
@@ -12,16 +11,14 @@ library(viridis)
 ######## Data Preprocessing ########
 ####################################
 
+# load data in environment using mcsurvdata package
 eh <- ExperimentHub()
 nda.crc <- query(eh, "mcsurvdata")[["EH1498"]]
-#nda.brca <- query(eh, "mcsurvdata")[["EH1497"]]
 dat<-nda.crc
-#dat<-nda.brca
 remove(eh,nda.crc)
-#remove(eh,nda.brca)
 gc()
 
-### Omics
+### define Omics
 Omics <- t(exprs(dat))
 dim(Omics)
 Features <- featureData(dat)
@@ -30,8 +27,7 @@ length(unique(colnames(Omics)))
 Omics<- Omics[,-which(duplicated(colnames(Omics)))]
 dim(Omics)
 
-############
-### Clinical
+### define Clinical
 Clinical <- pData(phenoData(dat))
 summary(Clinical$cms)
 Clinical<-cbind.data.frame(gender = Clinical$gender,
@@ -57,8 +53,6 @@ Imp = mice(data = Clinical, m = 1)
 Clinical<-complete(Imp)
 noNArows<-apply(is.na(Clinical),1,sum)==0
 noNAcols<-apply(is.na(Clinical),2,sum)==0
-sum(noNArows)
-sum(noNAcols)
 Clinical$gender<-as.numeric(Clinical$gender)- 1 #0 = male; 1 = female
 Clinical$site <- as.numeric(Clinical$site) - 1# 0 = right; 1 = left-rectum
 Clinical$Stage = factor(Clinical$Stage, levels(Clinical$Stage))
@@ -100,8 +94,10 @@ dev.off()
 #######################################
 ##############  Analysis ##############
 #######################################
-load("500_CRC.Rdata")
-load("5000_CRC.Rdata")
+gc()
+setwd("C:/Users/VNOB-0732/Desktop/R files/ClinOmics/ClinOmics/Applications")
+#load("500_CRC.Rdata")
+#load("5000_CRC.Rdata")
 load("21292_CRC.Rdata")
 dim(Omics)
 gc()
@@ -123,6 +119,7 @@ library(SurvMetrics)
 library(survivalROC)
 library(stringr)
 
+
 # standardize data
 Omics <- scale(Omics)
 #set.seed(4)
@@ -138,7 +135,8 @@ X<-Omics[-ids,]; Xtest<-Omics[ids,]
 Y<-Response[-ids,]; Ytest<-Response[ids,]
 Z<-Clinical[-ids,]; Ztest=Clinical[ids,]
 remove(ids,Response,Clinical,Omics)
-
+gc()
+dim(X)
 # Fit training and test survival curve
 d.demo = data.frame(1)
 fit <- survfit(Y ~ 1, data = d.demo)
@@ -179,121 +177,129 @@ p = ncol(X)
 Lin = T
 RelTime = 5
 tau = 8
-# 0. Clinical
+
+
+# 0. Clinical cox ph
 ClinFit <- coxph(Y ~.,data = Z)
 summary(ClinFit)
-LP = predict(ClinFit,newdata = Z,type = "lp")
-LpPred = predict(ClinFit,newdata = Ztest,type = "lp")
+LP <- predict(ClinFit,newdata = Z,type = "lp")
+LpPred <- predict(ClinFit,newdata = Ztest,type = "lp")
 #ConcClin <- concordance(Ytest ~ LpPred)$concordance
-ConcClin1 <- Est.Cval(cbind(Ytest[,1],Ytest[,2],LpPred), tau = tau,  nofit=T)$Dhat
+ConcClin <- Est.Cval(cbind(Ytest[,1],Ytest[,2],LpPred), tau = tau,  nofit=T)$Dhat
 AUCClin <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = LpPred, predict.time = RelTime)$AUC
+remove(ClinFit,LpPred,LP)
 
-remove(ClinFit,LpPred)
-#1. RF
+#1. RF Clin + Omics
 DFtrain <- cbind.data.frame(time=Y[,1], event=Y[,2],X,Z)
 DFtest <- cbind.data.frame(time=Ytest[,1],event=Ytest[,2],Xtest,Ztest)
-RF <- rfsrc(Surv(time,event) ~ .,data=DFtrain,ntree=2000, var.used="all.trees",importance=c("none"),splitrule="logrank",
-            mtry = 4*sqrt(p))
+set.seed(4)
+p <- ncol(X)
+CV <- tune(Surv(time,event) ~ .,data=DFtrain, ntreeTry = 500, mtryStart = p/20,
+           nodesizeTry = c(5,10,20,100))
+nsize <- CV$optimal[1]
+mtry <- CV$optimal[2]
+set.seed(4)
+RF <- rfsrc(Surv(time,event) ~ .,data=DFtrain, ntree = 500, var.used="all.trees",importance=c("none"),splitrule="logrank",
+            mtry = mtry, nodesize = nsize)
 preds_RF <- predict.rfsrc(RF, newdata = DFtest, outcome = "train")
-
-#ConcRF <- 1-preds_RF$err.rate[2000]
-ConcRF1 <-  Est.Cval(cbind(Ytest[,1],Ytest[,2],rowSums(preds_RF$chf)), tau = tau, nofit=T)$Dhat
-AUCRF <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = rowSums(preds_RF$chf), predict.time = RelTime)$AUC
-remove(DFtrain,DFtest,preds_RF,RF)
-
-#1. RF
-DFtrain <- cbind.data.frame(time=Y[,1], event=Y[,2],X)
-DFtest <- cbind.data.frame(time=Ytest[,1],event=Ytest[,2],Xtest)
-RF <- rfsrc(Surv(time,event) ~ .,data=DFtrain,ntree=2000, var.used="all.trees",importance=c("none"),splitrule="logrank",
-            mtry = 4*sqrt(p))
-preds_RF <- predict.rfsrc(RF, newdata = DFtest, outcome = "train")
-
-ConcRF <- 1-preds_RF$err.rate[2000]
-ConcRF1 <-  Est.Cval(cbind(Ytest[,1],Ytest[,2],rowSums(preds_RF$chf)), tau = tau, nofit=T)$Dhat
+ConcRF <-  Est.Cval(cbind(Ytest[,1],Ytest[,2],rowSums(preds_RF$chf)), tau = tau, nofit=T)$Dhat
 AUCRF <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = rowSums(preds_RF$chf), predict.time = RelTime)$AUC
 remove(DFtrain,DFtest,preds_RF,RF)
 
 
 #2. Ridge
 set.seed(1)
-foldsHyp <- CVfolds(Y=Y, model = "cox", kfold = 5,nrepeat = 3)
-start=proc.time()
+foldsHyp <- CVfolds(Y=Y, model = "cox", kfold = 5,nrepeat = 1)
 Lam1=optPenaltyGLM.kCVauto2(Y = Y, X = X, U = model.matrix(~0+., Z), 
                             lambdaInit = 100, 
                             lambdaGinit = 0, maxIter = 100, minSuccDiff = 1e-5,
                             model = "surv", folds = foldsHyp, loss = "loglik")
-
-end=proc.time()-start
-end
-#start=proc.time()
-#Lam = penalized::optL2(response = Y, penalized = X, unpenalized = model.matrix(~0+., Z)[,-1],
-#            model = "cox", lambda1 = 100, fold = 5)
-#end1=proc.time()-start
-#end
-#end1
-
-#Lam <- Lam$lambda
-#RidgeFit1 = penalized::penalized(response = Y, penalized = X,
-#                                unpenalized = model.matrix(~., Z)[,-1],
-#                                model = "cox", lambda2=Lam1)
-
-#coefsPenalized <- penalized::coefficients(RidgeFit1)
-
-
 RidgeFit <- ridgeGLM2(Y = Y, U = model.matrix(~0+., Z), X = X, 
-                      lambda = Lam*3, lambdaG = 0, Dg = matrix(0, ncol=ncol(X), nrow = ncol(X)), 
+                      lambda = Lam1, lambdaG = 0, Dg = matrix(0, ncol=ncol(X), nrow = ncol(X)), 
                       model="surv")
-gc()
-Lam1
 names(RidgeFit) <- c(colnames(model.matrix(~0+., Z)),colnames(X))
 LP = (cbind(model.matrix(~0+., Ztest),Xtest) %*% RidgeFit)[,1]
 LP1 = -LP
-
-#ConcRidge <- concordance(Ytest ~ LP1)$concordance
-ConcRidge1 <- Est.Cval(cbind(Ytest[,1],Ytest[,2],LP), tau = tau, nofit=T)$Dhat
+ConcRidge <- Est.Cval(cbind(Ytest[,1],Ytest[,2],LP), tau = tau, nofit=T)$Dhat
 AUCRidge <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = LP, predict.time = RelTime)$AUC
+remove(RidgeFit,LP,LP1)
 
+#3. Residual Approach 
+ClinFit <- coxph(Y ~.,data = Z)
+summary(ClinFit)
+LP <- predict(ClinFit,newdata = Z,type = "lp")
+LpPred <- predict(ClinFit,newdata = Ztest,type = "lp")
+Las1 <- cv.glmnet(X,Y, offset = matrix(LP, ncol = 1, nrow = nrow(X)), alpha = 0, nfolds = 5,family = "cox")$lambda.min
+ResFit <- glmnet(X,Y, offset = matrix(LP, ncol = 1, nrow = nrow(X)),  alpha = 0, lambda = Las1, family = "cox")
+LP1 <- LpPred + (Xtest %*% ResFit$beta[,1])[,1]
+Conc_Res <- Est.Cval(cbind(Ytest[,1],Ytest[,2],LP1), tau = tau, nofit=T)$Dhat
+AUC_Res <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = LP1, predict.time = RelTime)$AUC
+remove(LassoFit1,LP,LP1)
 
+#4. Lasso
 Las = cv.glmnet(cbind(model.matrix(~.,Z)[,-1],X),Y, alpha = 1, nfolds = 5,family = "cox",
                 penalty.factor = c(rep(0,p_clin),rep(1,p)))$lambda.min
-Las1 = cv.glmnet(X,Y, offset = matrix(LP, ncol = 1, nrow = nrow(X)), alpha = 0, nfolds = 5,family = "cox")$lambda.min
-
-
 LassoFit = glmnet(cbind(model.matrix(~.,Z)[,-1],X),Y, alpha = 1, lambda = Las, family = "cox",
                   penalty.factor = c(rep(0,p_clin),rep(1,p)))
-LassoFit1 = glmnet(X,Y, offset = matrix(LP, ncol = 1, nrow = nrow(X)),  alpha = 0, lambda = Las1, family = "cox")
-length(LassoFit1$beta)
-LP = (cbind(model.matrix(~., Ztest)[,-1],Xtest) %*% LassoFit1$beta)[,1]
-LP1 = LpPred + (Xtest %*% LassoFit1$beta[,1])[,1]
-#ConcLasso <- concordance(Ytest ~ LP)$concordance
-ConcLasso1 <- Est.Cval(cbind(Ytest[,1],Ytest[,2],LP1), tau = tau, nofit=T)$Dhat
-AUCLasso <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = LP1, predict.time = RelTime)$AUC
-remove(LassoFit,LP)
+
+LP = (cbind(model.matrix(~., Ztest)[,-1],Xtest) %*% LassoFit$beta)[,1]
+LP1 = -LP
+
+Conc_Lasso <- Est.Cval(cbind(Ytest[,1],Ytest[,2],LP), tau = tau, nofit=T)$Dhat
+AUC_Lasso <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = LP, predict.time = RelTime)$AUC
+remove(LassoFit,LP,LP1)
 gc()
-### boosting ###
+
+#5. boosting #
 DFtrain <- cbind.data.frame(time=Y[,1], event=Y[,2],X,Z)
 DFtest <- cbind.data.frame(time=Ytest[,1],event=Ytest[,2],Xtest,Ztest)
 gc()
 
+max.depths <- c(2,4,6)
+etas <- c(0.1, 0.01, 0.001)
+Res <- expand.grid(Depth = max.depths, Shrinkage = etas)
+Res <- cbind(Res, CV.Perf = NA) # add column for cv performances
+NTrees <- 100
+gc()
 set.seed(11)
-options(expressions = 5e5)
+for (i in 1:nrow(Res)) {
+  depth <- Res$Depth[i]
+  eta <- Res$Shrinkage[i]
+  set.seed(i)
+  gbm <- gbm::gbm(Surv(time, event)~.,
+             DFtrain,
+             n.trees = NTrees,
+             interaction.depth = depth,
+             shrinkage = eta,
+             distribution="coxph", cv.folds = 5)
+  Res[i,3] <- gbm$cv.error[NTrees]
+}
+id <- which.max(Res$CV.Perf)   
+Res[id,]
+
+set.seed(11)
 gbm <- gbm(Surv(time, event)~.,
            DFtrain,
-           n.trees = 100,
-           interaction.depth=2,
+           n.trees = NTrees,
+           interaction.depth = Res$Depth[id],
+           shrinkage = Res$Shrinkage[id],
            distribution="coxph")
-
+gbm <- gbm.fit(x = cbind.data.frame(Z,X), y = Y,
+               n.trees = NTrees,
+               interaction.depth = Res$Depth[id],
+               shrinkage = Res$Shrinkage[id],
+               distribution="coxph")
 set.seed(11)
 gbm.pred <- predict.gbm(gbm, 
                         newdata=DFtest, 
                         type="response") 
-gbm.pred <- -gbm.pred
+gbm.pred <- predict.gbm(gbm, 
+                        newdata=cbind.data.frame(Ztest,Xtest), 
+                        type="response") 
 
+ConcGB <- Est.Cval(cbind(Ytest[,1],Ytest[,2],gbm.pred), tau = tau, nofit=T)$Dhat
+AUCGB <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = gbm.pred, predict.time = RelTime)$AUC
 
-#ConcGB <- concordance(Ytest ~ gbm.pred)$concordance
-ConcGB1 <- Est.Cval(cbind(Ytest[,1],Ytest[,2],-gbm.pred), tau = tau, nofit=T)$Dhat
-AUCGB <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = -gbm.pred, predict.time = RelTime)$AUC
-remove(DFtrain,DFtest,gbm,gbm.pred)
 
 #### BlockForest ####
 #####################
@@ -313,14 +319,11 @@ blockforobj$paramvalues
 set.seed(40)
 Preds=predict(blockforobj$forest, data=XblockTest)
 Preds <- -rowSums(Preds$chf)
-#ConcBlock <- concordance(Ytest ~ Preds)$concordance
-ConcBlock1 <- Est.Cval(cbind(Ytest[,1],Ytest[,2],-Preds), tau = tau, nofit=T)$Dhat
+ConcBlock <- Est.Cval(cbind(Ytest[,1],Ytest[,2],-Preds), tau = tau, nofit=T)$Dhat
 AUCBlock <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = -Preds, predict.time = RelTime)$AUC
 remove(Xblock,XblockTest,blocks,Preds,blockforobj)
 gc()
 
-##### CoxBoost ####
-####################
 
 
 
@@ -336,9 +339,6 @@ minerr <- which.min(rp$cptable[,"xerror"])
 bestcp <- rp$cptable[minerr,"CP"]
 remove(minerr)
 Treefit <- prune(rp, cp = bestcp)
-
-name <- paste("Tree_CRC.pdf",sep = "_")
-pdf(name, width=3.25,height=3)
 rpart.plot(Treefit, # middle graph
            type=5,
            extra=1, 
@@ -347,34 +347,25 @@ rpart.plot(Treefit, # middle graph
            shadow.col="gray", 
            nn=TRUE,
            cex = 0.6)
-
-
-dev.off()
-
 Nodes <-  row.names(Treefit$frame)[rpart.predict.leaves(Treefit,Z)]
 Nodes <- as.numeric(Nodes)
 NumNod <- length(unique(Nodes))
-
-#Lam1=1000
 set.seed(5)
-foldsHyp = .CVfoldsTree(Y=Y,Tree = Treefit,Z=Z,model="surv",kfold = 5, nrepeat = 3)
-start = proc.time()
-optLam1 = PenOpt(Tree=Treefit,Y=Y,X=X,Z=Z,model = "surv",lambdaInit = Lam1/NumNod,alphaInit = 1000, 
+foldsHyp = .CVfoldsTree(Y=Y,Tree = Treefit,Z=Z,model="surv",kfold = 5, nrepeat = 1)
+optLam1 = PenOpt(Tree=Treefit,Y=Y,X=X,Z=Z,model = "surv",lambdaInit = Lam1,alphaInit = 1, 
                  folds = foldsHyp,LinVars = Lin, maxIter = 30)
-end1 = proc.time()-start
-end1
 optLam1
-Fit=FusTreeFit(Tree=Treefit,Y=Y,X=as.matrix(X),Z=Z,model = "surv",lambda = optLam1[1],alpha =  optLam1[2],LinVars = Lin)
-
-#View(as.matrix(Fit$Omics))
-#View(Fit$Clinical)
+Fit <- FusTreeFit(Tree=Treefit,Y=Y,X=as.matrix(X),Z=Z,
+               model = "surv",
+               lambda = optLam1[1],
+               alpha =  optLam1[2],
+               LinVars = Lin)
 
 Preds=Predictions(fit=Fit,newX = as.matrix(Xtest),newZ = Ztest,newY = Ytest, model="surv", Linvars = Lin)
 Preds = Preds$Preds
 lpmin=as.numeric(Preds$LinPred)
 
-#ConcFusTree=concordance(Ytest ~ lpmin)$concordance
-ConcFusTree1=Est.Cval(cbind(Ytest[,1],Ytest[,2],lpmin), tau=tau, nofit=T)$Dhat
+ConcFusTree=Est.Cval(cbind(Ytest[,1],Ytest[,2],lpmin), tau=tau, nofit=T)$Dhat
 AUCFusTree <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = lpmin, predict.time = RelTime)$AUC
 Fit$Effects[1:9]
 ### backward ###
@@ -404,7 +395,6 @@ remove(Dat,Dat_tree_test,Yte_tree)
 Concordances1 <- c()
 AUCs <- c()
 for (j in 1:length(pvals)) {
-  j=3
   EmpNodes = names(pvals)[1:j]
   #names(Fits)[i] <- paste(names(pvals)[1:i],collapse = ",")
   print(paste("Fit FusedTree without omics effects in", paste(names(pvals)[1:j],collapse = ", ")))
@@ -484,6 +474,7 @@ save(Fit,X2,U1,Y, file = nm)
 
 load("FinalFitCRC.Rdata")
 betas = Fit[-(1:7)]
+betas
 beta_N5 <- betas[seq(1,length(betas),3)]
 beta_N12 <- betas[seq(2,length(betas),3)]
 beta_N13 <- betas[seq(3,length(betas),3)]
@@ -552,10 +543,10 @@ ids1 <- c()
 for (i in 1:length(genes)){
   nm <- genes[i]
   id = which(grepl(nm,names(Fit)))
-  id1 = which(grepl(nm,names(RidgeFit)))
+  #id1 = which(grepl(nm,names(RidgeFit)))
   print(names(Fit)[id])
   ids <- append(ids,id)
-  ids1 <- append(ids1,id1)
+  #ids1 <- append(ids1,id1)
 }
 RidgeFit[ids1]
 Lam = 1508
@@ -569,8 +560,9 @@ save(Betas, file = "Betas_RegPath_CRC.Rdata")
 load("Betas_RegPath_CRC.Rdata")
 Betas <- Betas[,ids]
 
+colnames(Betas) <- paste0("\u03b2_", colnames(Betas))
+colnames(Betas) <- gsub('N','',colnames(Betas))
 
-substring(colnames(Betas),1,1)[-1] <-"\u03b2"
 Res = cbind.data.frame("Alpha"=log(alf),Betas)
 melt = melt(Res, id = "Alpha")
 
@@ -580,9 +572,74 @@ library(ggplot2); library(viridis)
 library(Cairo)
 CairoPDF(name, width=3.25,height=2.9)
 plot <- ggplot(melt, aes(x = Alpha, y = value, group = variable, colour = variable,linetype = variable)) + 
-  geom_line() + theme_light() +
+  geom_line(linewidth=1.1) + theme_light() +
   scale_color_viridis(discrete = T, option = "D") + scale_linetype_manual(values = c(rep("solid",3),rep("dashed",3))) +
-  theme(legend.title = element_blank(),legend.text=element_text(size=4)) + labs(x="log(\u03b1)",y="Effect estimates") 
+  theme(legend.title = element_blank(),legend.text=element_text(size=5)) + labs(x="log(\u03b1)",y="Effect estimates") 
 plot <- plot + geom_vline(xintercept=log(14836), linetype="dotted") 
 plot
 dev.off()
+library(grid)
+vp.BottomRight <- viewport(height=unit(.9, "npc"), width=unit(0.5, "npc"), 
+                           just=c("left","top"),
+                           y=.9, x=0.5)
+library(Cairo)
+# plot your base graphics 
+
+name <- paste("Plot_Application_CRC.pdf")
+CairoPDF(name, width=8,height=3)
+par(mfrow=c(1,2))
+rpart.plot(Treefit, # middle graph
+           type=5,
+           extra=1, 
+           box.palette="Pu",
+           branch.lty=8, 
+           shadow.col=0, 
+           nn=TRUE,
+           cex = 0.6)
+ 
+
+# plot the ggplot using the print command
+print(plot, vp=vp.BottomRight)
+mtext(side = 2, line = 2, "a", cex = 1, font = 2,las = 2 ,at = 1)
+mtext(side = 4, line = 2, "b", cex = 1, font = 2,las = 2 ,at = 1)
+mtext("X", side = 1, line = 3.7, col = "red", at=0.05, cex = 1.2)
+mtext("X", side = 1, line = 3.7, col = "red", at=0.22, cex = 1.2)
+mtext("X", side = 1, line = 3.7, col = "red", at=0.941, cex = 1.2)
+dev.off()
+getwd()
+
+##### Stratified ####
+#####################
+
+summary(Z$Stage)
+Stage = levels(Z$Stage)
+Resp <- c()
+LP <- c()
+
+for (i in 1:length(Stage)) {
+  subset <- Stage[i]
+  ids = which(Z$Stage==subset)
+  ids1 = which(Ztest$Stage==subset)
+  X1 <- X[ids,]; Y1 <- Y[ids,]
+  X1_Te <- Xtest[ids1,]; Y1_Te <- Ytest[ids1,]
+  
+  if (i==1){
+    Lam <- 1
+  } else {
+    Lam <- penalized::optL2(response = Y1, penalized = X1,
+                            model = "cox", fold = 10)
+    Lam <- Lam$lambda
+  }
+  RidgeFit1 = penalized::penalized(response = Y1, penalized = X1,
+                                   model = "cox", lambda2=1)
+  
+  coefsPenalized <- penalized::coefficients(RidgeFit1)
+  LpPred <- (X1_Te %*% coefsPenalized)[,1]
+  LP <- append(LP,LpPred)
+  Resp <- append(Resp,Y1_Te)
+}
+LP <- -LP
+ConcStrat <- Est.Cval(cbind(Resp[,1],Resp[,2],LP), tau = tau,  nofit=T)$Dhat
+AUCStrat <- survivalROC.C(Stime = Resp[,1], status = Resp[,2], marker = LP, predict.time = RelTime)$AUC
+
+

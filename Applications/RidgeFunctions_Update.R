@@ -1114,7 +1114,7 @@ optPenaltyGLM.kCVauto2 <- function(Y,
         lpNew=rep(0,nrow(Y[folds[[k]],]))
         break
       } else if (abs((loglik - loglikPrev)/loglikPrev) < minSuccDiff){
-        print("Succesful Fit")
+        #print("Succesful Fit")
         break
       } else {
         loglikPrev <- loglik

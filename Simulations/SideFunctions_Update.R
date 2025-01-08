@@ -59,7 +59,7 @@ Dat_Tree <- function(tree,X,Z,Y,model, LinVars=T) {
     
     
     if (LinVars==T){
-      idVars <- which(sapply(Z, is.numeric) & apply(Z,2,function (x) length(unique(x)) > 2))
+      idVars <- which(sapply(Z, is.numeric) & apply(Z,2,function (x) length(unique(x)) > 5))
       nameZ = colnames(Z)[idVars]
       Clinical <- as.matrix(cbind(ClinIntercepts,Z[,idVars]))
       colnames(Clinical)[-(1:NumNodes)] <- nameZ
