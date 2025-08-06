@@ -1,4 +1,4 @@
-setwd("C:/Users/VNOB-0732/Desktop/R files/ClinOmics/FusedTree_Paper/Applications")
+setwd("~/PhD files/R files/ClinOmics/FusedTree_Paper/Applications")
 
 #BiocManager::install("mcsurvdata")
 library(mcsurvdata)
@@ -286,10 +286,12 @@ blocks <- rep(1:2, times=c(ncol(Z), ncol(X)))
 blocks <- lapply(1:2, function(x) which(blocks==x))
 set.seed(40)
 blockforobj <- blockfor(Xblock, Y,  blocks=blocks,
-                        nsets = 50)
+                        nsets = 100)
+blockforobj1 <- blockfor(Xblock, Y,  blocks=blocks,
+                         nsets = 100, always.select.block = 1)
 blockforobj$paramvalues
 set.seed(40)
-Preds=predict(blockforobj$forest, data=XblockTest)
+Preds=predict(blockforobj1$forest, data=XblockTest)
 Preds <- rowSums(Preds$chf)
 ConcBlock <- Est.Cval(cbind(Ytest[,1],Ytest[,2],Preds), tau = tau, nofit=T)$Dhat
 AUCBlock <- survivalROC.C(Stime = Ytest[,1], status = Ytest[,2], marker = Preds, predict.time = RelTime)$AUC
@@ -302,8 +304,8 @@ Inf.Cval.Delta(cbind(Ytest[,1],Ytest[,2]), Preds, LP, tau = tau, itr = 10000, se
 ####################
 
 dat=cbind.data.frame(Y,Z)
-set.seed(9)
-rp <- rpart(Y~.,data = dat, control = rpart.control(xval =5, minbucket = 30,cp=0),
+set.seed(10)
+rp <- rpart(Y~.,data = dat, control = rpart.control(xval =5, minbucket = 30),
             model = T)
 minerr <- which.min(rp$cptable[,"xerror"])
 bestcp <- rp$cptable[minerr,"CP"]
@@ -389,7 +391,7 @@ remove(Dat,Dat_tree_test,Yte_tree)
 Concordances1 <- c()
 AUCs <- c()
 for (j in 1:length(pvals)) {
-  j = 3
+  j = 2
   EmpNodes = names(pvals)[1:j]
   #names(Fits)[i] <- paste(names(pvals)[1:i],collapse = ",")
   print(paste("Fit FusedTree without omics effects in", paste(names(pvals)[1:j],collapse = ", ")))
@@ -442,7 +444,7 @@ for (j in 1:length(pvals)) {
     #if(lambdaInit <= 0){stop("initial penalty lambdaInit should be larger than zero")}
     #if(alphaInit <= 0){stop("initial penalty alphaInit should be larger than zero")}
     optPenalties <- optPenaltyGLM.kCVauto2(Y = Y1, X = X2, U = U1, 
-                                           lambdaInit = 1500, lambdaGinit = 10000,
+                                           lambdaInit = 1500, lambdaGinit = 100,
                                            folds = foldsHyp,
                                            Dg=Delta,model = "surv",loss="loglik")
     
@@ -465,8 +467,6 @@ nm <- "FinalFitCRC.Rdata"
 save(Fit,X2,U1,Y, file = nm)
 
 # Fully Fused #
-
-
 
 ###########################################################
 ############### Downstream Analysis #######################
@@ -641,5 +641,8 @@ for (i in 1:length(Stage)) {
 LP <- -LP
 ConcStrat <- Est.Cval(cbind(Resp[,1],Resp[,2],LP), tau = tau,  nofit=T)$Dhat
 AUCStrat <- survivalROC.C(Stime = Resp[,1], status = Resp[,2], marker = LP, predict.time = RelTime)$AUC
+
+
+
 
 
