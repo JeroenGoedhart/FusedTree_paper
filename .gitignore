@@ -1,2 +1,52 @@
-.Rdata
-.pdf
+# History files
+*.Rhistory
+.Rapp.history
+
+# Session data
+*.RData
+*.Rdata
+*.Ruserdata
+
+# RStudio project files
+.Rproj.user
+.Rproj
+
+# User-specific files
+*.Renviron
+.Rprofile
+
+# Output files
+*.pdf
+*.html
+*.docx
+*.xlsx
+*.rtf
+*.odt
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Cache and folders
+.Rcache/
+.Rcheck/
+.Rplots/
+
+# Packrat (R dependency management)
+packrat/lib/
+packrat/src/
+packrat/packrat.lock
+packrat/packrat.opts
+
+# renv (modern R dependency management)
+renv/library/
+renv/staging/
+
+# Python virtual environment (if using reticulate)
+venv/
+__pycache__/
