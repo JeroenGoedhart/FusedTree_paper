@@ -21,7 +21,7 @@ library(Matrix)
 Nsim <- 500
 p <- 500
 p_Clin <- 5
-N <- 100 # or set to N = 300 for other setting
+N <- 300 # or set to N = 300 for other setting
 Ntest <- 5000
 
 load("correlationmatrix.Rdata")
@@ -42,13 +42,15 @@ betasX <- matrix(rlaplace(p, 0, 75 / p), ncol = 1)
 set.seed(2)
 betasZ <- matrix(rlaplace(p_Clin, 0, 35 / p_Clin),ncol = 1)
 
-var(as.matrix(Ztest) %*% betasZ)
-var(Xtest %*% betasX)
+signal <- var(as.matrix(Ztest) %*% betasZ + Xtest %*% betasX)
+clin <- var(as.matrix(Ztest) %*% betasZ)
+omics <- var(Xtest %*% betasX)
+noise <- 5 ^ 2
+R2 <- signal / (signal + noise)
 
 set.seed(2)
-Ytest <- as.matrix(Ztest) %*% betasZ + Xtest %*% betasX + rnorm(Ntest, 0, 1)
+Ytest <- as.matrix(Ztest) %*% betasZ + Xtest %*% betasX + rnorm(Ntest, 0, 5)
 Ytest <- Ytest[,1]
-(Var(Ytest)-1)/(Var(Ytest))
 
 MSE_ridge <- c()
 MSE_FusReg <- c()
@@ -72,7 +74,7 @@ for (i in 1:Nsim) {
   colnames(X) <- paste0("x", seq(1, p))
   
   ## simulating response
-  Y <- as.matrix(Z) %*% betasZ + X %*% betasX + rnorm(N, 0, 1)
+  Y <- as.matrix(Z) %*% betasZ + X %*% betasX + rnorm(N, 0, 5)
   Y <- Y[,1]
   
   #specify folds for hyperparameter tuning
@@ -212,7 +214,7 @@ for (i in 1:Nsim) {
     
     ####### 6. Fit  FusedTree ######
     optPenalties <- PenOpt(Tree = Treefit, X = X, Y = Y, Z = Z, LinVars = T,
-                           lambdaInit = 100, alphaInit = 100,
+                           lambdaInit = 100, alphaInit = 1000,
                            model = "linear", folds = folds, loss = "sos")
     Fit <- FusTreeFit(Tree = Treefit, X = X, Y = Y, Z = Z, LinVars = T,
                      lambda = optPenalties[1], alpha = optPenalties[2],
@@ -231,20 +233,20 @@ for (i in 1:Nsim) {
 
 results <- cbind.data.frame(MSE_FullFus,MSE_FusReg,MSE_GB,MSE_RF,MSE_ridge,MSE_Lasso,MSE_ZeroFus,VarY = rep(var(Ytest),Nsim), FusPar)
 colMeans(results)
-nm <- paste(N,Nsim,"Linear.Rdata",sep = "_")
+nm <- paste(N,Nsim,"Linear_HighNoise.Rdata",sep = "_")
 save(results,file = nm)
 
 ###### plotting results #####
 library(ggplot2); library(viridis)
 
 #1. boxplots of PMSE
-load("100_500_Linear.Rdata")
+load("100_500_Linear_HighNoise.Rdata")
 results1 <- results[,c(2,1,7,3,4,5,6)]
 colnames(results1) <- c("FusTree","FullFus","ZeroFus","GB","RF","Ridge","Lasso")
 colMeans(results1)
 dat <- stack(results1)
 dat <- cbind.data.frame(dat,"Setting" = "N = 100")
-load("300_500_Linear.Rdata")
+load("300_500_Linear_HighNoise.Rdata")
 results1 <- results[,c(2,1,7,3,4,5,6)]
 colMeans(results1)
 colnames(results1) <- c("FusTree","FullFus","ZeroFus","GB","RF","Ridge","Lasso")
@@ -265,13 +267,13 @@ bp + facet_grid(. ~ Setting)
 dev.off()
 
 #2. diff PMSE versus alpha
-load("100_500_Linear.Rdata")
+load("100_500_Linear_HighNoise.Rdata")
 x <- log(results$alpha)
 x[is.infinite(x)] <- log(10e20)
 
 y <- results$MSE_FullFus/results$MSE_FusReg
 dat <- cbind.data.frame("alpha" = x, "PMSE" = y,"Setting" = rep("N = 100", 500))
-load("300_500_Linear.Rdata")
+load("300_500_Linear_HighNoise.Rdata")
 x <- log(results$alpha)
 max(x)
 y <- results$MSE_FullFus/results$MSE_FusReg

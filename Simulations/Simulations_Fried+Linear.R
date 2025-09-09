@@ -21,7 +21,7 @@ library(Matrix)
 Nsim <- 500
 p <- 500
 p_Clin <- 5
-N <- 300 # or set to N = 100 for other setting
+N <- 100 # or set to N = 100 for other setting
 Ntest <- 5000
 
 load("correlationmatrix.Rdata")
@@ -48,16 +48,14 @@ betas <- matrix(rlaplace(p, 0, 75/p), ncol = 1)
 var(g(Ztest))
 var(Xtest %*% betas)
 
+signal <- var(g(Ztest) + Xtest %*% betas)
+
+noise <- 5 ^ 2
+R2 <- signal / (signal + noise)
 set.seed(2)
-Ytest <- g(Ztest) + Xtest %*% betas + rnorm(Ntest,0,1); var(Ytest)
+Ytest <- g(Ztest) + Xtest %*% betas + rnorm(Ntest, 0, 5); var(Ytest)
 Ytest <- Ytest[,1]
 var(Ytest)
-
-signal <- g(Ztest) + Xtest %*% betas
-var_signal <- var(signal)
-var_signal
-true_R2 <- var_signal / (var_signal + 1)
-true_R2
 
 MSE_ridge <- c()
 MSE_FusReg <- c()
@@ -67,12 +65,13 @@ MSE_GB <- c()
 MSE_Lasso <- c()
 MSE_ZeroFus <- c()
 
-FusPar <- matrix(NA,nrow = Nsim, ncol = 5)
+FusPar <- matrix(NA, nrow = Nsim, ncol = 5)
 colnames(FusPar) <- c("Lambda","alpha","Lam Full Fus", "Lam Ridge","Lam Zero Fus")
 
 for (i in 1:Nsim) {
   print(paste("simulation",i, sep = " "))
-  set.seed(i^3+534+i)
+ 
+   set.seed(i ^ 3 + 534 + i)
 
   Z <- matrix(runif(N*p_Clin,0,1),nrow = N, ncol = p_Clin)
   colnames(Z) <- paste0("z",seq(1,p_Clin))
@@ -245,21 +244,21 @@ for (i in 1:Nsim) {
 }
 
 results <- cbind.data.frame(MSE_FullFus,MSE_FusReg,MSE_GB,MSE_RF,MSE_ridge,MSE_Lasso,MSE_ZeroFus,VarY = rep(var(Ytest),Nsim), FusPar)
-colMeans(results)
-nm <- paste(N, Nsim, "FriedmanLinear1.Rdata", sep = "_")
+colMeans(results[1:7])
+nm <- paste(N, Nsim, "FriedmanLinear_HighNoise.Rdata", sep = "_")
 save(results, file = nm)
 
 ###### plotting results #####
 library(ggplot2); library(viridis)
 
 #1. boxplots of PMSE
-load("100_500_FriedmanLinear1.Rdata")
+load("100_500_FriedmanLinear_HighNoise.Rdata")
 results1 <- results[,c(2,1,7,3,4,5,6)]
 colnames(results1) <- c("FusTree","FullFus","ZeroFus","GB","RF","Ridge","Lasso")
 colMeans(results1)
 dat <- stack(results1)
 dat <- cbind.data.frame(dat, "Setting" = "N = 100")
-load("300_500_FriedmanLinear1.Rdata")
+load("300_500_FriedmanLinear_HighNoise.Rdata")
 results1 <- results[,c(2,1,7,3,4,5,6)]
 colnames(results1) <- c("FusTree","FullFus","ZeroFus","GB","RF","Ridge","Lasso")
 colMeans(results1)
@@ -280,16 +279,15 @@ bp + facet_grid(. ~ Setting)
 dev.off()
 
 #2. diff PMSE versus alpha
-load("100_500_FriedmanLinear1.Rdata")
-results$alpha[is.infinite(results$alpha)] <- 10e20
 
+load("100_500_FriedmanLinear_HighNoise.Rdata")
+results$alpha[is.infinite(results$alpha)] <- 10e20
 x <- log(results$alpha)
 y <- results$MSE_FullFus/results$MSE_FusReg
 dat <- cbind.data.frame("alpha" = x, "PMSE" = y, "Setting" = rep("N = 100", 500))
-max(dat$alpha) #one infinity value
 
 
-load("300_500_FriedmanLinear1.Rdata")
+load("300_500_FriedmanLinear_HighNoise.Rdata")
 max(results$alpha) #
 x <- log(results$alpha)
 y <- results$MSE_FullFus/results$MSE_FusReg

@@ -126,12 +126,18 @@ library(ggplot2); library(ggsci)
 results_avg$Model <- ifelse(results_avg$Model == "fusedTree", "FusedTree", results_avg$Model)
 name <- "MOB_vs_FusedTree.pdf"
 pdf(name, width=7,height=3)
-ggplot(results_avg, aes(x = p, y = mean_MSE, color = Model)) +
+ggplot(results_avg, aes(x = p, y = mean_MSE, color = Model, fill = Model, shape = Model)) +
   geom_line(linewidth= 1.2) +
-  geom_point() + scale_x_continuous(breaks = p_vals) +
+  geom_point(size = 2, stroke = 0.8) +
+  scale_fill_jama() + scale_color_jama() +
+  scale_shape_manual(values = c(21, 25)) +
+  scale_x_continuous(breaks = p_vals) +
   facet_wrap(~N, scales = "free_y", labeller = as_labeller(function(x) paste0("N = ", x))) +
   labs(title = "", 
        x = "Number of variables in the leaves (p)", 
-       y = expression(R^2)) +
-  theme_light() + scale_color_jama()
+       y = expression(R^2),
+       color = "Model",
+       fill = "Model",
+       shape = "Model") +
+  theme_light() 
 dev.off()

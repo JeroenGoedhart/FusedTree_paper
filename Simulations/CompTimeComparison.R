@@ -3,7 +3,7 @@ gc()
 library(VGAM)
 library(glmnet)
 library(randomForestSRC)
-library(porridge)
+library(penalized)
 library(rpart); 
 library(rpart.plot)
 library(treeClust)
@@ -30,14 +30,12 @@ g <- function (z,x,betas){
 }
 
 N_values <- c(100, 200, 500)
-N_values <- c(200, 500)
-#N_values <- 500
 p_values <- c(50, 100, 200, 500, 1000)
 Nsim <- 50
 
-#results <- data.frame()
-#results_median <- data.frame()
-#res_leafs <- data.frame()
+results <- data.frame()
+results_median <- data.frame()
+res_leafs <- data.frame()
 
 for (N in N_values) {
   for (p in p_values) {
@@ -78,14 +76,13 @@ for (N in N_values) {
       tryCatch({
         time_mat[i, "Ridge"] <- suppressMessages(suppressWarnings(system.time({
           
-          Lam1 <- optPenaltyGLM.kCVauto(Y = Y, X = X, U = model.matrix( ~ ., Z),
-                                        lambdaInit = 10, lambdaGinit = 0,
-                                        model = "linear", folds = folds, loss = "sos")
-          if (Lam1 == Inf) Lam1 <- 10e8
-          
-          fit <- ridgeGLM(Y = Y, U = model.matrix( ~ ., Z), X = X, 
-                          lambda = Lam1, lambdaG = 0,
-                          model = "linear")
+          lambda_opt <- optL2(response = Y, penalized = X, 
+                              unpenalized = model.matrix(~., Z)[,-1],
+                              trace = FALSE, fold = 5)
+          fit <- penalized(response = Y, penalized = X, 
+                           unpenalized = model.matrix(~., Z)[,-1],
+                           lambda1 = 0, lambda2 = 10$lambda,
+                           trace = FALSE)
         })["elapsed"]))
       }, error = function(e) {
         warning(sprintf("Ridge error at sim %d (N=%d, p=%d): %s", i, N, p, conditionMessage(e)))
@@ -135,7 +132,7 @@ for (N in N_values) {
           }))
           sink()
           
-          RF <- rfsrc(Ydf ~ ., data = DFtrain,ntree = 500, mtry = p / 4,
+          RF <- rfsrc(Ydf ~ ., data = DFtrain,ntree = 500, mtry = p / 3,
                       nodesize = tune_result$nsize.opt)
         })["elapsed"]))
       }, error = function(e) {
@@ -225,9 +222,9 @@ for (N in N_values) {
     res_leafs <- rbind(res_leafs, leaf_df)
   }
 }
-
-allres <- list(time_average = results,time_median = results_median, leaves = res_leafs)
-save(allres, file = "CompTime_Results.Rdata")
+warnings()
+allres1 <- list(time_average = results,time_median = results_median, leaves = res_leafs)
+save(allres1, file = "CompTime_Results_New.Rdata")
 
 ##### Plotting #####
 
@@ -236,7 +233,7 @@ results <- allres$time
 library(ggplot2); library(ggsci)
 
 name <- "CompTimeComparison.pdf"
-pdf(name, width=7,height=3)
+pdf(name, width=7,height=4)
 ggplot(results, aes(x = p, y = mean_time, color = model, fill = model, shape = model)) +
   geom_line(linewidth = 1.2) +
   geom_point(size = 2, stroke = 0.8) +
